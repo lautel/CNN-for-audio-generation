@@ -33,7 +33,7 @@ config = nn_config.get_parameters()
 
 mode = config['mode_in']
 b = config['nbits']
-#frequency = config['frequencies']
+frequency = config['frequencies']
 framerate = config['framerate']
 seconds = config['sec']
 batch_size = config['batch_size']
@@ -49,10 +49,9 @@ t = np.linspace(0, seconds, seconds*framerate)
 # phase_set = list(itertools.permutations(phase, r=3))[:permut]  # [:divisor]
 # phase_set = np.reshape(phase_set, (len(phase_set)/batch_size, batch_size, 3))
 
-freq_set = [100, 125, 160]  # 100 Hz
 phase_set = [0, np.pi/2, 0]
 # Generation of input sub-dataset
-wave = generate_input(freq_set, phase_set, t, mode=mode)
+wave = generate_input(frequency, phase_set, t, mode=mode)
 # Quantization of the signal with 'b' bits
 [X, values] = quantifier(waves=wave, Amax=1, nbits=b)
 # Redefinition of input and target data: predict the last sample one-hot encoded
@@ -205,7 +204,7 @@ if config['synthesize'] == 'True':
 #     #seed_len = 1
 #     #seed_seq = generate_seed_sequence(seed_length=seed_len, training_data=data_train)
     [sequence, oneHseq] = generate_from_seed(model=model, seed=datat[sig][:w,:], sequence_length=samples,
-                                             data_variance=np.var(freq_set),data_mean=np.mean(freq_set), values_=values)
+                                             data_variance=np.var(frequency),data_mean=np.mean(frequency), values_=values)
 
     print ('Finished generation!')
 #
