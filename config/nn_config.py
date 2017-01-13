@@ -8,6 +8,7 @@ def get_parameters():
     nn_params['nbits'] = 8
     nn_params['framerate'] = 16e3
     nn_params['nfrec'] = 1
+    nn_params['frequencies'] = [100, 165, 111]
     #nn_params['frequencies'] = np.random.uniform(1, nn_params['framerate']/24, nn_params['nfrec'])
     nn_params['sec'] = 5
 
