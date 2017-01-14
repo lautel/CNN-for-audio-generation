@@ -18,11 +18,15 @@ After training the network, we save and load the weights for generating a new wa
 from __future__ import division
 import numpy as np
 import itertools
+# import matplotlib
+# matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from sklearn.metrics import mean_absolute_error
 from sklearn.metrics import mean_squared_error
+from keras.models import Sequential
 from IPython import embed
 from time import time
+#from tqdm import tqdm
 import config.nn_config as nn_config
 from gen_utils.seed_generator import generate_seed_sequence
 from gen_utils.sequence_generator import generate_from_seed
@@ -34,54 +38,53 @@ config = nn_config.get_parameters()
 mode = config['mode_in']
 b = config['nbits']
 frequency = config['frequencies']
+phase_set = config['phases']
 framerate = config['framerate']
 seconds = config['sec']
-batch_size = config['batch_size']
-permut = config['permutations']
+nwaves = config['nwaves']
 
 t = np.linspace(0, seconds, seconds*framerate)
 
-# freq_set = list(itertools.permutations(frequency, r=3))[:permut]  # 1685040 permutations
-# # divisor = int(np.floor(len(freq_set)/batch_size) * batch_size)
-# # freq_set = freq_set[:divisor]
-# freq_set = np.reshape(freq_set, (len(freq_set)/batch_size, batch_size, 3))
-# phase = np.random.uniform(-180, 180, len(frequency))
-# phase_set = list(itertools.permutations(phase, r=3))[:permut]  # [:divisor]
-# phase_set = np.reshape(phase_set, (len(phase_set)/batch_size, batch_size, 3))
 
-phase_set = [0, np.pi/2, 0]
 # Generation of input sub-dataset
-wave = generate_input(frequency, phase_set, t, mode=mode)
+wave = generate_input(nwaves, frequency, phase_set, t, mode=mode)
 # Quantization of the signal with 'b' bits
 [X, values] = quantifier(waves=wave, Amax=1, nbits=b)
 # Redefinition of input and target data: predict the last sample one-hot encoded
 data = one_hot_encoding(X, values)
 
-plt.figure()
-plt.plot(wave[0][:256])
-plt.plot(X[0][:256], 'r')
+# plt.figure()
+# plt.plot(X[0][:240])
+# plt.plot(X[1][:240])
+# plt.plot(X[2][:240])
+# plt.show()
 
-fig = plt.figure()
-ax = fig.add_subplot(1, 1, 1)
-ax.set_aspect('equal')
-plt.imshow(data[0][:500,:], interpolation='nearest', cmap=plt.cm.gray)
-plt.show()
+# fig = plt.figure()
+# ax = fig.add_subplot(1, 1, 1)
+# ax.set_aspect('equal')
+# plt.imshow(data[0][:500,:], interpolation='nearest', cmap=plt.cm.gray)
+# plt.show()
 
-
-w = 256
-data_train = data[:,:w,:]
-target_train = data[:,(w+1),:]
+## define the checkpoint
+pb = printbatch()
+#filepath="./weights/weights-loss-{loss:.4f}.hdf5"
+#checkpoint = ModelCheckpoint(filepath, monitor='loss', verbose=1, save_best_only=True, mode='min')
+#callbacks_list = [checkpoint]
 
 
 ## Network parameters ##
 nb_filters = config['nb_filters']
 nb_epoch = config['nb_epoch']
 filepath = config['wfilepath']
-nbatch = config['nbatch_per_epoch']
-samples_per_epoch = batch_size*nbatch
+batch_size = config['batch_size']
+nbatch = config['batches_per_epoch']
 
-# Callbacks
-pb = printbatch()
+samples_per_epoch = batch_size * nbatch * nwaves
+
+## Defining data input shape ##
+w = 513
+data_train = data[:,:w,:]
+target_train = data[:,(w+1),:]
 
 ##### Defining the neural network ####
 print 'Building neural network architecture...'
@@ -116,109 +119,86 @@ else:
         print('Weights saved!')
 
 
-np.save('acc_100_mix_256_9.npy', hist.history['acc'])
-np.save('loss_100_mix_256_9.npy', hist.history['loss'])
-np.save('acc_val_100_mix_256_9.npy', hist.history['val_acc'])
-np.save('loss_val_100_mix_256_9.npy', hist.history['val_loss'])
+np.save('acc_80_mix_256_9_m.npy', hist.history['acc'])
+np.save('loss_80_mix_256_9_m.npy', hist.history['loss'])
+np.save('acc_val_80_mix_256_9_m.npy', hist.history['val_acc'])
+np.save('loss_val_80_mix_256_9_m.npy', hist.history['val_loss'])
 
-embed()
-
-acc = hist.history['acc']
-loss = hist.history['loss']
-acc_val = hist.history['val_acc']
-loss_val = hist.history['val_loss']
-
-# acc = np.load('acc_80_mix2_256_8.npy')
-# loss = np.load('loss_80_mix2_256_8.npy')
-# acc_val = np.load('acc_val_80_mix2_256_8.npy')
-# loss_val = np.load('loss_val_80_mix2_256_8.npy')
-
-plt.figure(1)
-plt.plot(acc)
-plt.plot(acc_val,'g')
-plt.ylabel('accuracy')
-plt.xlabel('epoch')
-plt.legend(['train','test'], loc='upper left')
-
-# summarize history for loss in both training and validation datasets
-plt.figure(2)
-plt.plot(loss)
-plt.plot(loss_val,'g')
-plt.ylabel('loss')
-plt.xlabel('epoch')
-plt.legend(['train','test'], loc='upper left')
-plt.show()
 
 ### TEST DATA ###
-# Amount of samples to generate
-samples = 50
-
-# # Generation of test input
-wavet = generate_input(100, phase_set, t, mode=['mixture2', 'mixture3'])
-# Quantization of the signal with 'b' bits
-[Xt, valuest] = quantifier(waves=wavet, Amax=1, nbits=b)
-# Redefinition of input and target data: predict the last sample one-hot encoded
-datat = one_hot_encoding(Xt, valuest)
-
-sig=0
-my_gen_test = my_generator_test(datat[sig], w, t)
-
-### ---->>> NEED TO REVIEW THIS PART... SWITCH TO model.predict() INSTEAD
-prediction = model.predict_generator(my_gen_test, val_samples=samples, max_q_size=10, nb_worker=1, pickle_safe=False)
-predict_class = np.argmax(prediction, axis=1)
-predict_value = values[predict_class]
-
-oh_prediction = np.zeros((prediction.shape), dtype=int)
-for j in range(oh_prediction.shape[0]):
-    oh_prediction[j, predict_class[j]] = -1  # Asi se ven en rojo los puntos predecidos
-
-### ERROR MEASURE ###
-mae = mean_absolute_error(Xt[sig][w+1:w+samples+1], predict_value)
-mse = mean_squared_error(Xt[sig][w+1:w+samples+1], predict_value)
-print "MAE = " + str(mae)
-print "MSE = " + str(mse)
-
-# print('Evaluate: [loss, accuracy]', model.evaluate_generator(my_gen_test, val_samples=samples))
-
-### REAL-VALUES VISUALIZATION ###
-plt.figure(3)
-plt.plot(t[:w+samples+1], Xt[sig][:w+samples+1])
-plt.plot(t[w+1:w+1+samples], predict_value,'r')
-plt.title('Sine generation after %i epochs training' % nb_epoch)
-plt.legend(['Original', 'Generated'], loc='lower right')
-plt.show()
-
-### ONE-HOT VISUALIZATION ###
-# total = np.concatenate((datat[0][:w,:], oh_prediction), axis=0)
-# fig = plt.figure(4)
-# ax = fig.add_subplot(1, 1, 1)
-# ax.set_aspect('equal')
-# plt.imshow(total, interpolation='nearest', cmap=plt.cm.RdBu)
-# plt.show()
-
 
 ### SYNTHESIZE
 if config['synthesize'] == 'True':
-#
-#     print ('\nStarting generation!\n')
-#     #seed_len = 1
-#     #seed_seq = generate_seed_sequence(seed_length=seed_len, training_data=data_train)
-    [sequence, oneHseq] = generate_from_seed(model=model, seed=datat[sig][:w,:], sequence_length=samples,
-                                             data_variance=np.var(frequency),data_mean=np.mean(frequency), values_=values)
 
-    print ('Finished generation!')
-#
-    axe = np.arange(sequence.shape[1]) / sequence.shape[1]
+    acc = np.load('acc_80_mix_256_9_m.npy')
+    loss = np.load('loss_80_mix_256_9_m.npy')
+    acc_val = np.load('acc_val_80_mix_256_9_m.npy')
+    loss_val = np.load('loss_val_80_mix_256_9_m.npy')
 
-    plt.figure(5)
-    plt.plot(t[:w+1], sequence[0, :w+1], 'b')
-    plt.plot(t[w+1:w+1+samples], sequence[0, w:], 'r')
+    plt.figure(1)
+    plt.plot(acc)
+    plt.plot(acc_val,'g')
+    plt.ylabel('accuracy')
+    plt.xlabel('epoch')
+    plt.legend(['train'], loc='upper left')
+
+    # summarize history for loss in both training and validation datasets
+    plt.figure(2)
+    plt.plot(loss)
+    plt.plot(loss_val,'g')
+    plt.ylabel('loss')
+    plt.xlabel('epoch')
+    plt.legend(['train'], loc='upper left')
     plt.show()
 
+    print ('Starting generation!\n')
+
+    samples = config['samples']
+    sig = 10
+    # # Generation of test input
+    # wavet = generate_input(2,[110,200], phase_set, t)
+    # Quantization of the signal with 'b' bits
+    # [Xt, valuest] = quantifier(waves=wavet, Amax=1, nbits=b)
+    # Redefinition of input and target data: predict the last sample one-hot encoded
+    # datat = one_hot_encoding(Xt, valuest)
+    Xt = X
+    seedSeq = data[sig, :w, :]
+    seedSeq = np.reshape(seedSeq, (1, seedSeq.shape[0], seedSeq.shape[1]))
+    # seed_len = 1
+    # seed_seq = generate_seed_sequence(seed_length=seed_len, training_data=data_train)
+    [sequence, oneHseq] = generate_from_seed(model=model, seed=seedSeq, sequence_length=samples,
+                                             data_variance=np.var(frequency), data_mean=np.mean(frequency),
+                                             values_=values)
+    prediction = sequence[0, w:]
+    print ('Finished generation!')
+
+    ### ERROR MEASURE ###
+    mae = mean_absolute_error(Xt[sig][w+1:w+samples+1], prediction)
+    mse = mean_squared_error(Xt[sig][w+1:w+samples+1], prediction)
+    print "MAE = " + str(mae)
+    print "MSE = " + str(mse)
+
+    ### REAL-VALUES VISUALIZATION ###
+    plt.figure(3)
+    plt.plot(t[:w+1], sequence[0, :w+1], 'b')
+    plt.plot(t[w+1:w+1+samples], sequence[0, w:], 'r')
+    plt.title('Sine generation after %i epochs training' % nb_epoch)
+    plt.legend(['Original', 'Generated'], loc='lower right')
+    plt.show()
+
+    ### ONE-HOT VISUALIZATION ###
+    # fig = plt.figure(4)
+    # ax = fig.add_subplot(1, 1, 1)
+    # ax.set_aspect('equal')
+    # plt.imshow(oneHseq, interpolation='nearest', cmap=plt.cm.RdBu)
+    # plt.show()
+
+# print('Evaluate: [loss, accuracy]', model.evaluate_generator(my_gen_test, val_samples=samples))
 
 embed()
 
+
 # #Save the generated sequence to a WAV file
-fs = config['sampling_frequency']
-audio2wav(predict_value, 16000)
+# fs = config['sampling_frequency']  #--> tiene que ser la misma Fs con la que se generan los senos o es independiente?
+# audio2wav(predict_value, 16000)
 
