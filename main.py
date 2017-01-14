@@ -2,7 +2,7 @@
 '''
 Author: LAURA CABELLO PIQUERAS
 Starting date: September 2016
-Last update: 13/01/2017
+Last update: 14/01/2017
 
 CNN with X hidden layers, where X depends on the length of the input.
 Input to the network is a set of waves ONE-HOT encoded. I work with 3 sort of waves: simple sines, mixture of 2 or
