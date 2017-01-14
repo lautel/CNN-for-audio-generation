@@ -12,7 +12,7 @@ def get_parameters():
     nn_params['phases'] = [0, np.pi/2, np.pi]
     nn_params['sec'] = 1
 
-    nn_params['nb_filters'] = 48
+    nn_params['nb_filters'] = 32
     nn_params['batch_size'] = 256
     nn_params['batches_per_epoch'] = 10
     nn_params['nb_epoch'] = 80
