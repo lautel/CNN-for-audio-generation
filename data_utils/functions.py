@@ -1,9 +1,10 @@
 from __future__ import division
+import os
 import numpy as np
-import itertools
+
 from keras.models import Sequential
-from keras.layers import Input, Dense, Dropout, Flatten, Convolution1D, Merge, Activation, AtrousConvolution1D
-from keras.layers.pooling import MaxPooling1D
+from keras.layers import Input, Dense, Flatten, Convolution1D, Convolution2D, Merge, Activation, \
+    TimeDistributed, Reshape, Permute, AtrousConvolution1D
 from keras.layers.core import Lambda
 from keras.optimizers import SGD, Adam
 from keras.regularizers import l2, activity_l2
@@ -11,7 +12,6 @@ from keras import callbacks
 from keras.callbacks import ModelCheckpoint
 from keras.callbacks import EarlyStopping
 from keras.engine import Model
-from scipy.signal import chirp
 from scipy.io import wavfile
 import config.nn_config as nn_config
 from IPython import embed
@@ -98,7 +98,7 @@ def one_hot_encoding(X, values):
 
 class printbatch(callbacks.Callback):
     # def on_batch_end(self, batch, logs={}):
-    #     if batch%100 == 0:
+    #     if batch%10 == 0:
     #         print "\nBatch " + str(batch) + " ends"
 
     def on_epoch_begin(self, epoch, logs={}):
@@ -107,53 +107,6 @@ class printbatch(callbacks.Callback):
     def on_epoch_end(self, epoch, logs={}):
         print(logs)
 
-
-def my_generator(datain, window, t):
-    while 1:
-        for ii in range(len(datain[0])-window-1):
-            # Generation of input sub-dataset
-            # if ii%50 == 0:
-            #     randn = np.random.randint(low=-1, high=1)
-            # else:
-            #     randn = 0
-            # ini = np.abs(ii+randn)
-            data_train_ = datain[:,ii:ii+window, :]
-            target_train_ = datain[:,ii+window+1, :]
-
-            yield (data_train_, target_train_)
-
-
-def my_generator_valid(datain, window, t):
-    while 1:
-        for ii in range(len(datain[0]) - window - 1):
-            if ii%10 == 0:
-                randn = np.random.randint(low=-1, high=1)
-            else:
-                randn = 0
-            ini = np.abs(ii+randn)
-            data_train_ = datain[:,ini:ini + window, :]
-            target_train_ = datain[:,ini + window + 1, :]
-            #data_train_ = np.reshape(data_train, (1, data_train.shape[0], data_train.shape[1]))
-            #target_train_ = np.reshape(target_train, (1, target_train.shape[0]))
-
-            yield (data_train_, target_train_)
-
-
-def my_generator_test(datain, window, t):
-    while 1:
-        for ii in range(len(datain) - window - 1):
-            # if ii % 10 == 0:
-            #     randn = np.random.randint(low=-1, high=1)
-            # else:
-            #     randn = 0
-            # ini = np.abs(ii + randn)
-            data_train = datain[ii:ii + window, :]
-            target_train = datain[ii + window + 1, :]
-
-            data_train_ = np.reshape(data_train, (1, data_train.shape[0], data_train.shape[1]))
-            target_train_ = np.reshape(target_train, (1, target_train.shape[0]))
-
-            yield (data_train_, target_train_)
 
 
 # Architecture #1 for the CNN
@@ -230,7 +183,6 @@ def baseline_model2(data_, target_, nb_filters_, framerate_, loading='False', pa
     m.add(Dense(target_.shape[1], activation='softmax'))
     # Compile model
     # sgd = SGD(lr=0.01, momentum=0.8, decay=1e-4, nesterov=False)  # Values from https://arxiv.org/pdf/1512.07370.pdf
-    ADAM = Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-05, decay=0.0)
     if loading == 'True':
         m.load_weights(path)
         print "Weights loaded!"
@@ -238,23 +190,103 @@ def baseline_model2(data_, target_, nb_filters_, framerate_, loading='False', pa
     return m
 
 
+
+
 # Architecture #3 for the CNN
-def complex_model(data_, target_, nb_filters_, framerate_, loading='False', path=""):
+def complex_model(output_levels, segment_length, receptive_field, nb_filters_, framerate_, loading=False, path=""):
+    fnn_init = 'he_uniform'
+    def residual_block(input_):
+        original = input_
+        tanh_ = AtrousConvolution1D(
+            nb_filter=nb_filters_,
+            filter_length=2,
+            atrous_rate=2**i,
+            init=fnn_init,
+            border_mode='valid',
+            bias=False,
+            causal=True,
+            activation='tanh',
+            name='AtrousConv1D_%d_tanh' % (2**i)
+        )(input_)
+
+        sigmoid_ = AtrousConvolution1D(
+            nb_filter=nb_filters_,
+            filter_length=2,
+            atrous_rate=2**i,
+            init=fnn_init,
+            border_mode='valid',
+            bias=False,
+            causal=True,
+            activation='sigmoid',
+            name='AtrousConv1D_%d_sigm' % (2**i)
+        )(input_)
+
+        input_ = Merge(mode='mul')([tanh_, sigmoid_])
+
+        res_x = Convolution1D(nb_filter=nb_filters_, filter_length=1, border_mode='same', bias=False)(input_)
+        skip_c = res_x
+        res_x = Merge(mode='sum')([original, res_x])
+
+        return res_x, skip_c
+
+    input = Input(shape=(segment_length, output_levels), name='input_part')
+    skip_connections = []
+    output = input
+    output = AtrousConvolution1D(
+        nb_filter=nb_filters_,
+        filter_length=2,
+        atrous_rate=1,
+        init=fnn_init,
+        activation='relu',
+        border_mode='valid',
+        causal=True,
+        name='initial_AtrousConv1D'
+    )(output)
+
+    for i in range( int(np.log2( receptive_field ) ) ):
+        output, skip_c = residual_block(output)
+        skip_connections.append(skip_c)
+
+    out = Merge(mode='sum')(skip_connections)
+
+    for _ in range(2):
+        out = Activation('relu')(out)
+        out = Convolution1D(output_levels, 1, activation=None, border_mode='same')(out)
+    out = Activation('softmax', name='output_softmax')(out)
+
+    m = Model(input, out)
+    if loading:
+        m.load_weights(path)
+        print "Weights loaded!"
+    #ADAM = Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-05, decay=0.0)
+    m.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+    return m
+
+
+
+
+
+# Architecture #4 for the CNN
+def complex_model2(data_, target_, nb_filters_, framerate_, loading=False, path=""):
     fnn_init = 'he_uniform'
     def residual_block(input_):
 
-        tanh_ = Convolution1D(
+        tanh_ = Convolution2D(
             nb_filter=nb_filters_,
-            filter_length=2,
-            subsample_length=2,
+            nb_row=2,
+            nb_col=2,
+            subsample=(2,2),
+            dim_ordering='th',
             init=fnn_init,
             activation='tanh'
         )(input_)
 
-        sigmoid_ = Convolution1D(
+        sigmoid_ = Convolution2D(
             nb_filter=nb_filters_,
-            filter_length=2,
-            subsample_length=2,
+            nb_row=2,
+            nb_col=2,
+            subsample=(2,2),
+            dim_ordering='th',
             init=fnn_init,
             activation='sigmoid'
         )(input_)
@@ -263,30 +295,37 @@ def complex_model(data_, target_, nb_filters_, framerate_, loading='False', path
 
         return out
 
-    input = Input(shape=(data_.shape[1], data_.shape[2]), name='input_part')
-    output = Convolution1D(
+    input = Input(shape=(data_.shape[1], data_.shape[2], data_.shape[3]), name='input_part')
+    output = Convolution2D(
         nb_filter=nb_filters_,
-        filter_length=2,
+        nb_row=2,
+        nb_col=2,
+        dim_ordering='th',
         init=fnn_init,
         activation='relu',
-        border_mode='valid'
+        border_mode='same'
     )(input)
 
-    for _ in range( int(np.log2(np.floor(data_.shape[1])))-1 ):
+    ply = int(np.log2( data_.shape[3]))-1
+    for _ in range( ply ):
         output = residual_block(output)
 
-    flat = Flatten()(output)
-    output = Dense(target_.shape[1], activation='softmax')(flat)
+
+    out = Permute((2, 1, 3))(output)
+    dim1 = int(data_.shape[2]/(2**ply))
+    dim2 = int(data_.shape[3]/(2**ply))
+
+    out = Reshape((dim1, nb_filters_*dim2))(out)
+    output = TimeDistributed(Dense(output_dim=target_.shape[2], init=fnn_init, activation='softmax'))(out)
 
     m = Model(input, output)
     m.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
 
-    if loading == 'True':
+    if loading:
         m.load_weights(path)
         print "Weights loaded!"
     #m.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
     return m
-
 
 # Record a WAV file
 def audio2wav(output, fs):
