@@ -173,40 +173,6 @@ if config['synthesize'] == 'True':
 
     print ('Starting generation!\n')
 
-
-    # def test_preprocess(desired_sample_rate, batch_size, use_ulaw):
-    #     sample_dir = os.path.join('preprocess_test')
-    #     if not os.path.exists(sample_dir):
-    #         os.mkdir(sample_dir)
-    #
-    #     ulaw_str = '_ulaw' if use_ulaw else ''
-    #     sample_filename = os.path.join(sample_dir, 'test1%s.wav' % ulaw_str)
-    #     sample_stream = make_sample_stream(desired_sample_rate, sample_filename)
-    #
-    #     outputs = generate_train_test(x_train, values, window_length, batch_size, stride, random=True).next()[0][1].astype('uint8')
-    #
-    #     write_samples(sample_stream, outputs)
-    #     wavfile.write(os.path.join(sample_dir, 'test2%s.wav' % ulaw_str), desired_sample_rate,
-    #                            np.argmax(outputs, axis=-1).astype('uint8'))
-    #
-    #
-    # def make_sample_stream(desired_sample_rate, sample_filename):
-    #     sample_file = wave.open(sample_filename, mode='w')
-    #     sample_file.setnchannels(1)
-    #     sample_file.setframerate(desired_sample_rate)
-    #     sample_file.setsampwidth(1)
-    #     return sample_file
-    #
-    #
-    # def write_samples(sample_file, out_val, use_ulaw):
-    #     s = np.argmax(out_val, axis=-1).astype('uint8')
-    #     # print s,
-    #     s = bytearray(list(s))
-    #     # print s[0]
-    #     sample_file.writeframes(s)
-    #     sample_file._file.flush()
-
-
     samples = config['samples']
     sig = 0
     # # Generation of test input
@@ -216,7 +182,7 @@ if config['synthesize'] == 'True':
     # Redefinition of input and target data: predict the last sample one-hot encoded
     # datat = one_hot_encoding(Xt, valuest)
     Xt = X
-    seedSeq = X[sig, :window_length, :]
+    seedSeq = Xt[sig, :window_length]
     seedSeq = np.reshape(seedSeq, (1, seedSeq.shape[0], seedSeq.shape[1]))
     # seed_len = 1
     # seed_seq = generate_seed_sequence(seed_length=seed_len, training_data=data_train)
