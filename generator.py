@@ -2,7 +2,6 @@ from __future__ import print_function
 import numpy as np
 from data_utils.functions import one_hot_encoding
 #import matplotlib.pyplot as plt
-from IPython import embed
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -72,7 +71,7 @@ def generate_epoch_train_test_v(data, _, window_length, batch_size, stride, rand
                 print('... minibatch frame %d/%d, file: %d, offset: %d' % (
                 i, n_samples_batch, ind_waves[i], offset[i]))
             x[i, :] = data[ind_waves[i], offset[i]:offset[i] + window_length]
-            y[i, :] = data[ind_waves[i], offset[i] + stride:offset[i] +stride+ window_length]
+            y[i, :] = data[ind_waves[i], offset[i] + stride:offset[i] + stride+window_length]
         yield x, y
 
 # ----------------------------------------------------------------------------------------------------------------------
