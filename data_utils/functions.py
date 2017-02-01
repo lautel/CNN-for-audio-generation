@@ -22,29 +22,29 @@ config = nn_config.get_parameters()
 def generate_input(nwaves, f_set, ph_set, t, mode='simple'):
     Amax = 1
     wave_ = []
-
+    print('Input data in %s mode' % mode)
     for s in range(nwaves):
         if mode == 'simple':
             sine = Amax * np.sin(2 * np.pi * f_set[s] * t)
 
         elif mode == 'mixture1':
             # Mixture of 2 sinusoids at different frequencies
-            sine1 = Amax * np.sin(2 * np.pi * f_set[0] * t)
-            sine2 = Amax * np.sin(2 * np.pi * f_set[1] * t)
+            sine1 = Amax * np.sin(2 * np.pi * f_set[s] * t)
+            sine2 = Amax * np.sin(2 * np.pi * f_set[s+1] * t)
             sine = sine1 + sine2
 
         elif mode == 'mixture2':
             # Mixture of 3 sinusoids at different frequencies
-            sine1 = Amax * np.sin(2 * np.pi * f_set[0] * t)
-            sine2 = Amax * np.sin(2 * np.pi * f_set[1] * t)
-            sine3 = Amax * np.sin(2 * np.pi * f_set[2] * t)
+            sine1 = Amax * np.sin(2 * np.pi * f_set[s] * t)
+            sine2 = Amax * np.sin(2 * np.pi * f_set[s+1] * t)
+            sine3 = Amax * np.sin(2 * np.pi * f_set[s+2] * t)
             sine = sine1 + sine2 + sine3
 
         elif mode == 'mixture3':
             # Mixture of sinusoids at different frequencies with random phases
-            sine1 = Amax * np.sin(2 * np.pi * f_set[0] * t + ph_set[0])
-            sine2 = Amax * np.sin(2 * np.pi * f_set[1] * t + ph_set[1])
-            sine3 = Amax * np.sin(2 * np.pi * f_set[2] * t + ph_set[2])
+            sine1 = Amax * np.sin(2 * np.pi * f_set[s] * t + ph_set[0])
+            sine2 = Amax * np.sin(2 * np.pi * f_set[s+1] * t + ph_set[1])
+            sine3 = Amax * np.sin(2 * np.pi * f_set[s+2] * t + ph_set[2])
             sine = sine1 + sine2 + sine3
 
         sine = sine / np.max(np.abs(sine))  # Normalize amplitude
@@ -106,7 +106,6 @@ class printbatch(callbacks.Callback):
 
     def on_epoch_end(self, epoch, logs={}):
         print(logs)
-
 
 
 # Architecture #1 for the CNN
@@ -183,7 +182,7 @@ def baseline_model2(data_, target_, nb_filters_, framerate_, loading='False', pa
     m.add(Dense(target_.shape[1], activation='softmax'))
     # Compile model
     # sgd = SGD(lr=0.01, momentum=0.8, decay=1e-4, nesterov=False)  # Values from https://arxiv.org/pdf/1512.07370.pdf
-    if loading == 'True':
+    if loading :
         m.load_weights(path)
         print "Weights loaded!"
     m.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
@@ -193,7 +192,7 @@ def baseline_model2(data_, target_, nb_filters_, framerate_, loading='False', pa
 
 
 # Architecture #3 for the CNN
-def complex_model(output_levels, segment_length, receptive_field, nb_filters_, framerate_, loading=False, path=""):
+def complex_model(output_levels, segment_length, receptive_field, nb_filters_, loading=False, path=""):
     fnn_init = 'he_uniform'
     def residual_block(input_):
         original = input_
@@ -267,65 +266,78 @@ def complex_model(output_levels, segment_length, receptive_field, nb_filters_, f
 
 
 # Architecture #4 for the CNN
-def complex_model2(data_, target_, nb_filters_, framerate_, loading=False, path=""):
+def complex_model2(input_length, output_levels, stride, receptive_field, nb_filters_, loading=False, path=""):
     fnn_init = 'he_uniform'
     def residual_block(input_):
-
-        tanh_ = Convolution2D(
+        original = input_
+        tanh_ = AtrousConvolution1D(
             nb_filter=nb_filters_,
-            nb_row=2,
-            nb_col=2,
-            subsample=(2,2),
-            dim_ordering='th',
+            filter_length=2,
+            atrous_rate=2**i,
             init=fnn_init,
-            activation='tanh'
+            border_mode='valid',
+            bias=False,
+            causal=True,
+            activation='tanh',
+            name='AtrousConv1D_%d_tanh' % (2**i)
         )(input_)
 
-        sigmoid_ = Convolution2D(
+        sigmoid_ = AtrousConvolution1D(
             nb_filter=nb_filters_,
-            nb_row=2,
-            nb_col=2,
-            subsample=(2,2),
-            dim_ordering='th',
+            filter_length=2,
+            atrous_rate=2**i,
             init=fnn_init,
-            activation='sigmoid'
+            border_mode='valid',
+            bias=False,
+            causal=True,
+            activation='sigmoid',
+            name='AtrousConv1D_%d_sigm' % (2**i)
         )(input_)
 
-        out = Merge(mode='mul')([tanh_, sigmoid_])
+        input_ = Merge(mode='mul')([tanh_, sigmoid_])
 
-        return out
+        res_x = Convolution1D(nb_filter=nb_filters_, filter_length=1, border_mode='same', bias=False)(input_)
+        skip_c = res_x
+        res_x = Merge(mode='sum')([original, res_x])
 
-    input = Input(shape=(data_.shape[1], data_.shape[2], data_.shape[3]), name='input_part')
-    output = Convolution2D(
+        return res_x, skip_c
+
+    input = Input(shape=(input_length, output_levels), name='input_part')
+    skip_connections = []
+    output = input
+    output = AtrousConvolution1D(
         nb_filter=nb_filters_,
-        nb_row=2,
-        nb_col=2,
-        dim_ordering='th',
+        filter_length=2,
+        atrous_rate=1,
         init=fnn_init,
         activation='relu',
-        border_mode='same'
-    )(input)
+        border_mode='valid',
+        causal=True,
+        name='initial_AtrousConv1D'
+    )(output)
 
-    ply = int(np.log2( data_.shape[3]))-1
-    for _ in range( ply ):
-        output = residual_block(output)
+    for i in range( int(np.log2( receptive_field ) ) ):
+        output, skip_c = residual_block(output)
+        skip_connections.append(skip_c)
 
+    out = Merge(mode='sum')(skip_connections)
 
-    out = Permute((2, 1, 3))(output)
-    dim1 = int(data_.shape[2]/(2**ply))
-    dim2 = int(data_.shape[3]/(2**ply))
+    for _ in range(2):
+        out = Activation('relu')(out)
+        out = Convolution1D(output_levels, 1, activation=None, border_mode='same')(out)
+    out = Activation('softmax', name='output_softmax')(out)
 
-    out = Reshape((dim1, nb_filters_*dim2))(out)
-    output = TimeDistributed(Dense(output_dim=target_.shape[2], init=fnn_init, activation='softmax'))(out)
+    #out = Reshape((dim1, nb_filters_*dim2))(out)
+    output = TimeDistributed(Dense(output_dim=output_levels, init=fnn_init, activation='softmax'))(out)
 
     m = Model(input, output)
-    m.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-
     if loading:
         m.load_weights(path)
         print "Weights loaded!"
-    #m.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+    #ADAM = Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-05, decay=0.0)
+    m.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
     return m
+
 
 # Record a WAV file
 def audio2wav(output, fs):
