@@ -103,4 +103,3 @@ if __name__ == "__main__":
     print("generating 16 / 5")
     for x in generate_rand_ind_batch(16, 5):
         print(x)
-
